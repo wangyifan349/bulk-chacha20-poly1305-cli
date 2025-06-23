@@ -34,7 +34,7 @@
 ### 编译
 
 ```bash
-git clone https://github.com/yourusername/bulk-chacha20-poly1305-cli.git
+git clone https://github.com/wangyifan349/bulk-chacha20-poly1305-cli.git
 cd bulk-chacha20-poly1305-cli
 cargo build --release
 ```
@@ -97,7 +97,7 @@ cargo build --release
 
 ## 许可证
 
-MIT License © 2024 你的名字/组织名
+MIT License © 2025  王一帆
 
 ---
 
