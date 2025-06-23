@@ -1,37 +1,37 @@
 # bulk-chacha20-poly1305-cli
 
-一款基于 Rust 实现的批量**ChaCha20-Poly1305**文件**加密与解密**工具，支持目录递归处理，密码安全派生，文件权限保持，终端交互友好。
+A Rust-based tool for batch **ChaCha20-Poly1305** file **encryption and decryption**, supporting recursive directory processing, secure password derivation, file permission preservation, and a user-friendly terminal interface.
 
 ---
 
-## 功能介绍
+## Features
 
-- 使用现代安全的 AEAD 算法 **ChaCha20-Poly1305**，支持加密和解密。
-- 批量递归处理目录内所有文件，支持子目录。
-- 密码通过 **Argon2** 进行安全迭代派生，加密密钥强度高。
-- 支持交互式命令行界面，密码隐藏输入并二次确认，操作直观简洁。
-- 保留文件原始权限防止误操作破坏权限设置（Unix 系统支持）。
-- 每个文件随机生成唯一 `nonce`，保证加密安全性。
-- 错误处理健壮，单文件失败不影响整体任务，带状态提示。
-
----
-
-## 依赖环境
-
-- Rust （建议 Rust 1.65+）
-- 依赖如下 crates：
-  - `chacha20poly1305` (加密解密)
-  - `argon2` (安全密码派生)
-  - `walkdir` (目录遍历)
-  - `dialoguer` (交互界面)
-  - `rand` (随机数生成)
-  - `anyhow` (简易错误处理)
+- Uses modern and secure AEAD algorithm **ChaCha20-Poly1305** for both encryption and decryption.
+- Batch and recursively processes all files in the specified directory, including subdirectories.
+- Passwords are securely derived using **Argon2**, providing high-strength encryption keys.
+- Interactive command-line interface with hidden password input and double confirmation for simplicity and security.
+- Preserves original file permissions to prevent accidental permission loss (supported on Unix systems).
+- Generates a unique random `nonce` for each file to ensure encryption security.
+- Robust error handling: single file failures do not interrupt the entire batch process; status indications are displayed.
 
 ---
 
-## 快速开始
+## Requirements
 
-### 编译
+- Rust (recommended version 1.65+)
+- Dependencies:
+  - `chacha20poly1305` (encryption/decryption)
+  - `argon2` (secure password derivation)
+  - `walkdir` (directory traversal)
+  - `dialoguer` (interactive command line interface)
+  - `rand` (random number generation)
+  - `anyhow` (simple error handling)
+
+---
+
+## Quick Start
+
+### Build
 
 ```bash
 git clone https://github.com/wangyifan349/bulk-chacha20-poly1305-cli.git
@@ -39,75 +39,73 @@ cd bulk-chacha20-poly1305-cli
 cargo build --release
 ```
 
-### 运行
+### Run
 
 ```bash
 ./target/release/bulk-chacha20-poly1305-cli
 ```
 
-按照交互提示输入：
+Follow the interactive prompts:
 
-- 选择操作模式（加密/解密）
-- 输入待处理目录路径（请确保目录存在且有读写权限）
-- 输入密码（隐藏且需二次确认）
+- Choose operation mode (Encrypt / Decrypt)
+- Enter the target directory (make sure it exists and has read/write permissions)
+- Enter your password (hidden input with confirmation)
 
-程序将自动递归处理目录内所有文件，并覆盖原文件。
+The program will recursively process all files under the directory and overwrite them with encrypted or decrypted content.
 
 ---
 
-## 使用示例
+## Usage Example
 
 ```text
 ==================================================
-🛡️  批量 ChaCha20-Poly1305 文件加密/解密工具
+🛡️  Batch ChaCha20-Poly1305 File Encryption/Decryption Tool
 ==================================================
-? 请选择操作模式
-  ▸ 🔒 加密 (Encrypt)
-    🔓 解密 (Decrypt)
-? 请输入需要处理的目录路径: /home/user/secrets
-? 请输入密码: [隐藏输入]
-? 请再次输入密码以确认: [隐藏输入]
+? Please select the operation mode
+  ▸ 🔒 Encrypt
+    🔓 Decrypt
+? Enter the directory to process: /home/user/secrets
+? Enter password: [hidden]
+? Confirm password: [hidden]
 
-🚀 开始加密目录: /home/user/secrets
-共找到 5 个文件，开始处理...
-✅ [1/5] 加密成功
-✅ [2/5] 加密成功
-❌ [3/5] 处理失败: /home/user/secrets/private.txt，错误:…
+🚀 Starting to encrypt directory: /home/user/secrets
+Found 5 files, starting processing...
+✅ [1/5] Encryption successful
+✅ [2/5] Encryption successful
+❌ [3/5] Failed to process: /home/user/secrets/private.txt, error:…
 ...
-✨ 所有文件处理完成。
-感谢使用！再见🤗
+✨ All files processed.
+Thank you for using the tool! Goodbye 🤗
 ```
 
 ---
 
-## 注意事项
+## Notes
 
-- **安全：** 请勿使用简单密码，程序使用的是固定盐，生产环境推荐自行修改代码支持动态盐读取和保存。
-- **跨平台：** 权限保留仅在 Unix/Linux/macOS 下有效，Windows 文件权限逻辑不同，后续版本支持。
-- **备份文件：** 当前版本直接覆盖原文件，建议加密前做好备份，防止误操作导致数据丢失。
-
----
-
-## 贡献指南
-
-欢迎提交 Issues 或 PR，改进功能或修复 Bug！  
-请遵守 Rust 代码风格，保持注释和文档更新。
+- **Security:** Do not use weak passwords. The program currently uses a fixed salt; for production use, it's recommended to modify the code to support dynamic salt generation and storage.
+- **Cross-platform:** File permission preservation works only on Unix/Linux/macOS. Windows file permissions work differently, and support will be added in future versions.
+- **Backup:** This tool overwrites original files. Always back up important data before encryption to avoid accidental data loss.
 
 ---
 
-## 许可证
+## Contribution
 
-MIT License © 2025  王一帆
-
----
-
-## 联系方式
-
-- GitHub: https://github.com/wangyifan349/bulk-chacha20-poly1305-cli
-
-- 
-- 邮箱: wangyifan349@gmail.com
+Contributions through Issues or Pull Requests to improve features or fix bugs are welcome!  
+Please follow Rust coding conventions and keep code comments and documentation up to date.
 
 ---
 
-感谢关注与支持！祝你使用愉快。🎉
+## License
+
+MIT License © 2025
+
+---
+
+## Contact
+
+- GitHub: https://github.com/wangyifan349/bulk-chacha20-poly1305-cli  
+- Email: wangyifan349@gmail.com
+
+---
+
+Thank you for your interest and support! Wishing you a great experience using this tool. 🎉
