@@ -1,92 +1,91 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use argon2::{Argon2, Params};
 use chacha20poly1305::{
     aead::{Aead, KeyInit, OsRng},
     ChaCha20Poly1305, Key, Nonce,
 };
-use dialoguer::{theme::ColorfulTheme, Input, Password, Select};
 use rand::RngCore;
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{self, BufRead, Read, Write},
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::Path,
 };
 use walkdir::WalkDir;
 
 const NONCE_LEN: usize = 12;
-const SALT: &[u8] = b"fixed_salt_for_demo!"; // 16 bytes固定盐示例（实际需改进）
+const SALT: &[u8] = b"fixed_salt_for_demo!"; // 固定盐示例
 
-/// 交互选择操作模式：加密或解密
-fn prompt_mode() -> Result<bool> {
-    let choices = &["🔒 加密 (Encrypt)", "🔓 解密 (Decrypt)"];
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("请选择操作模式")
-        .items(choices)
-        .default(0)
-        .interact()?;
-
-    Ok(selection == 0)
+fn read_line_trim() -> Result<String> {
+    let stdin = io::stdin();
+    let mut input = String::new();
+    stdin.lock().read_line(&mut input)?;
+    Ok(input.trim().to_string())
 }
 
-/// 交互询问目录路径，验证存在且有效
-fn prompt_directory() -> Result<PathBuf> {
+fn prompt_mode() -> Result<bool> {
     loop {
-        let input: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("请输入需要处理的目录路径")
-            .interact_text()?;
-
-        let path = PathBuf::from(input.trim());
-        if path.is_dir() {
-            return Ok(path);
+        println!("请输入操作模式 (encrypt/decrypt):");
+        let input = read_line_trim()?;
+        match input.as_str() {
+            "encrypt" => return Ok(true),
+            "decrypt" => return Ok(false),
+            _ => println!("无效输入，只能输入 encrypt 或 decrypt，请重新输入"),
         }
-        println!("❌ 输入路径不是有效目录，请重新输入！");
     }
 }
 
-/// 交互安全输入密码，隐藏输入并二次确认
+fn prompt_directory() -> Result<String> {
+    loop {
+        println!("请输入需要处理的目录路径:");
+        let input = read_line_trim()?;
+        let path = Path::new(&input);
+        if path.is_dir() {
+            return Ok(input);
+        } else {
+            println!("输入的路径无效或不是目录，请重新输入");
+        }
+    }
+}
+
 fn prompt_password() -> Result<String> {
     loop {
-        let pwd = Password::with_theme(&ColorfulTheme::default())
-            .with_prompt("请输入密码")
-            .allow_empty_password(false)
-            .interact()?;
-
-        let confirm = Password::with_theme(&ColorfulTheme::default())
-            .with_prompt("请再次输入密码以确认")
-            .allow_empty_password(false)
-            .interact()?;
-
-        if pwd == confirm {
-            return Ok(pwd);
+        println!("请输入密码:");
+        let password = rpassword::read_password()?;
+        if password.is_empty() {
+            println!("密码不能为空，请重新输入");
+            continue;
         }
-        println!("❌ 两次输入密码不匹配，请重新输入！");
+        println!("请再次输入密码确认:");
+        let confirm = rpassword::read_password()?;
+        if password == confirm {
+            return Ok(password);
+        }
+        println!("两次密码不匹配，请重新输入");
     }
 }
 
-/// 使用 Argon2 从密码派生 32 字节密钥
 fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
     let argon2 = Argon2::default();
     let mut key = [0u8; 32];
     argon2
         .hash_password_into(password.as_bytes(), salt, &Params::default(), &mut key)
-        .map_err(|e| anyhow!("Argon2 派生密钥失败: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Argon2 派生密钥失败: {}", e))?;
     Ok(key)
 }
 
-/// 加密单个文件，保留权限。格式：[nonce(12)+密文+tag]
 fn encrypt_file(path: &Path, cipher: &ChaCha20Poly1305) -> Result<()> {
     let meta = fs::metadata(path)?;
     let perms = meta.permissions();
 
-    let mut plain = Vec::new();
-    File::open(path)?.read_to_end(&mut plain)?;
+    let mut plaintext = Vec::new();
+    File::open(path)?.read_to_end(&mut plaintext)?;
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, plain.as_ref())?;
+    let ciphertext = cipher.encrypt(nonce, plaintext.as_ref())?;
 
     let mut f = OpenOptions::new().write(true).truncate(true).open(path)?;
     f.write_all(&nonce_bytes)?;
@@ -96,7 +95,6 @@ fn encrypt_file(path: &Path, cipher: &ChaCha20Poly1305) -> Result<()> {
     Ok(())
 }
 
-/// 解密单个文件，保留权限。格式需符合加密格式
 fn decrypt_file(path: &Path, cipher: &ChaCha20Poly1305) -> Result<()> {
     let meta = fs::metadata(path)?;
     let perms = meta.permissions();
@@ -105,7 +103,7 @@ fn decrypt_file(path: &Path, cipher: &ChaCha20Poly1305) -> Result<()> {
     File::open(path)?.read_to_end(&mut data)?;
 
     if data.len() < NONCE_LEN + 16 {
-        return Err(anyhow!("文件过短，缺少nonce或tag"));
+        bail!("文件内容长度不足，无法解密");
     }
 
     let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
@@ -117,28 +115,27 @@ fn decrypt_file(path: &Path, cipher: &ChaCha20Poly1305) -> Result<()> {
     f.write_all(&plaintext)?;
 
     fs::set_permissions(path, perms)?;
+
     Ok(())
 }
 
-/// 遍历目录，批量加密或解密所有文件
-fn process_directory(dir: &Path, cipher: &ChaCha20Poly1305, encrypt: bool) {
-    let files: Vec<_> = WalkDir::new(dir)
+fn process_directory(dir_path: &Path, cipher: &ChaCha20Poly1305, encrypt: bool) {
+    let files: Vec<_> = WalkDir::new(dir_path)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.path().is_file())
         .collect();
 
-    println!("⚡ 发现 {} 个文件，开始处理...", files.len());
+    println!("找到 {} 个文件，开始处理...", files.len());
 
     for (idx, entry) in files.iter().enumerate() {
         let path = entry.path();
-        let result = if encrypt {
+        let res = if encrypt {
             encrypt_file(path, cipher)
         } else {
             decrypt_file(path, cipher)
         };
-
-        match result {
+        match res {
             Ok(_) => println!("✅ [{}/{}] 成功: {}", idx + 1, files.len(), path.display()),
             Err(e) => eprintln!("❌ [{}/{}] 失败: {} 错误: {:?}", idx + 1, files.len(), path.display(), e),
         }
@@ -146,26 +143,24 @@ fn process_directory(dir: &Path, cipher: &ChaCha20Poly1305, encrypt: bool) {
 }
 
 fn main() -> Result<()> {
-    println!("==================================================");
-    println!("🛡️  批量 ChaCha20-Poly1305 文件加密/解密工具 v2");
-    println!("==================================================");
+    println!("批量 ChaCha20-Poly1305 文件加密/解密 工具");
 
     let encrypt = prompt_mode()?;
-    let dir = prompt_directory()?;
+    let dir_str = prompt_directory()?;
+    let dir_path = Path::new(&dir_str);
     let password = prompt_password()?;
-    println!();
 
     let key = derive_key(&password, SALT)?;
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
 
     println!(
-        "🚀 开始{}目录: {}",
+        "开始{}目录: {}",
         if encrypt { "加密" } else { "解密" },
-        dir.display()
+        dir_path.display()
     );
 
-    process_directory(&dir, &cipher, encrypt);
+    process_directory(dir_path, &cipher, encrypt);
 
-    println!("✨ 所有文件处理完成。感谢使用！再见🤗");
+    println!("所有文件处理完成。感谢使用！");
     Ok(())
 }
