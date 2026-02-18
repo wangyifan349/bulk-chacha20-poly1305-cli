@@ -1,9 +1,9 @@
-import os
+import secrets
 import hashlib
+from bech32 import encode, convertbits
 from typing import Optional, Tuple
-from bech32 import encode, convertbits  # pip install bech32
 
-# secp256k1 椭圆曲线参数
+# secp256k1 curve parameters
 p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 a = 0
 b = 7
@@ -11,17 +11,14 @@ Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 G = (Gx, Gy)
 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-
-O: Optional[Tuple[int, int]] = None  # 无穷点
+O: Optional[Tuple[int, int]] = None  # Point at infinity
 
 def inv_mod(k: int, p: int) -> int:
-    # 计算 k 在模 p 下的逆元
     if k == 0:
         raise ZeroDivisionError('division by zero')
     return pow(k, p-2, p)
 
 def point_add(P: Optional[Tuple[int, int]], Q: Optional[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
-    # 椭圆曲线加法
     if P is None: return Q
     if Q is None: return P
     (x1, y1) = P
@@ -39,7 +36,6 @@ def point_add(P: Optional[Tuple[int, int]], Q: Optional[Tuple[int, int]]) -> Opt
     return (x3, y3)
 
 def scalar_mul(k: int, P: Optional[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
-    # 椭圆曲线标量乘法（双倍加法算法）
     if k % n == 0 or P is None:
         return O
     if k < 0:
@@ -54,44 +50,69 @@ def scalar_mul(k: int, P: Optional[Tuple[int, int]]) -> Optional[Tuple[int, int]
     return R
 
 def pubkey_uncompressed(P: Tuple[int, int]) -> bytes:
-    # 公钥非压缩格式（65字节）
     x, y = P
     return b'\x04' + x.to_bytes(32, 'big') + y.to_bytes(32, 'big')
 
 def pubkey_compressed(P: Tuple[int, int]) -> bytes:
-    # 公钥压缩格式（33字节）
     x, y = P
     return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(32, 'big')
 
 def hash160(data: bytes) -> bytes:
-    # RIPEMD160(SHA256(data))
     sha = hashlib.sha256(data).digest()
     return hashlib.new('ripemd160', sha).digest()
 
 def bech32_encode(hrp: str, witver: int, witprog: bytes) -> str:
-    # BIP84 bech32编码
     witprog5 = convertbits(witprog, 8, 5, True)
     return encode(hrp, [witver] + witprog5)
 
 def bip84_address(P: Tuple[int, int], hrp: str = "bc") -> str:
-    # 生成 BIP84(bech32) 地址
     pk_hash = hash160(pubkey_compressed(P))
     return bech32_encode(hrp, 0, pk_hash)
 
-# ======== 生成密钥与地址 ========
+def base58_encode(data: bytes) -> str:
+    # Base58 character set
+    alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+    num = int.from_bytes(data, 'big')
+    enc = ''
+    while num > 0:
+        num, rem = divmod(num, 58)
+        enc = alphabet[rem] + enc
+    # Add '1' for each leading 0 byte
+    pad = 0
+    for c in data:
+        if c == 0:
+            pad += 1
+        else:
+            break
+    return '1' * pad + enc
 
-priv = int.from_bytes(os.urandom(32), 'big') % n
-if priv == 0:
-    priv = 1
+def wif_encode(priv: int, compressed: bool = True, testnet: bool = False) -> str:
+    # Private key to Wallet Import Format (WIF)
+    prefix = b'\x80' if not testnet else b'\xef'
+    priv_bytes = priv.to_bytes(32, 'big')
+    if compressed:
+        payload = prefix + priv_bytes + b'\x01'
+    else:
+        payload = prefix + priv_bytes
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    return base58_encode(payload + checksum)
 
+# ======== Secure private key generation ========
+def gen_priv_key() -> int:
+    while True:
+        priv = secrets.randbits(256)
+        if 1 <= priv < n:
+            return priv
+
+priv = gen_priv_key()
 pub = scalar_mul(priv, G)
-print("私钥(hex): 0x%x" % priv)
-print("公钥点:\nx=0x%064x\ny=0x%064x" % (pub[0], pub[1]))
 
+print("私钥(hex): 0x%x" % priv)
+print("私钥WIF (压缩):", wif_encode(priv, compressed=True, testnet=False))
+print("公钥点:\nx=0x%064x\ny=0x%064x" % (pub[0], pub[1]))
 uncompressed = pubkey_uncompressed(pub)
 compressed = pubkey_compressed(pub)
 print("非压缩公钥(hex):", uncompressed.hex())
 print("压缩公钥(hex):", compressed.hex())
-
 bip84_addr = bip84_address(pub, hrp='bc')
 print("BIP84(bech32)地址:", bip84_addr)
